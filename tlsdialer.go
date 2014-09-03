@@ -5,6 +5,7 @@ package tlsdialer
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"net"
 	"strings"
 	"time"
@@ -16,24 +17,23 @@ func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
-// Dial connects to the given network address using net.Dial
-// and then initiates a TLS handshake, returning the resulting
-// TLS connection.
-// Dial interprets a nil configuration as equivalent to
-// the zero configuration; see the documentation of Config
-// for the defaults.
-func Dial(network, addr string, config *tls.Config) (*tls.Conn, error) {
-	return DialWithDialer(new(net.Dialer), network, addr, config)
+// Like crypto/tls.Dial, but with the ability to control whether or not to
+// send the ServerName extension in client handshakes through the sendServerName
+// flag.
+//
+// Note - if sendServerName is false, the VerifiedChains field on the
+// connection's ConnectionState will never get populated.
+func Dial(network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
+	return DialWithDialer(new(net.Dialer), network, addr, sendServerName, config)
 }
 
-// DialWithDialer connects to the given network address using dialer.Dial and
-// then initiates a TLS handshake, returning the resulting TLS connection. Any
-// timeout or deadline given in the dialer apply to connection and TLS
-// handshake as a whole.
+// Like crypto/tls.DialWithDialer, but with the ability to control whether or
+// not to send the ServerName extension in client handshakes through the
+// sendServerName flag.
 //
-// DialWithDialer interprets a nil configuration as equivalent to the zero
-// configuration; see the documentation of Config for the defaults.
-func DialWithDialer(dialer *net.Dialer, network, addr string, config *tls.Config) (*tls.Conn, error) {
+// Note - if sendServerName is false, the VerifiedChains field on the
+// connection's ConnectionState will never get populated.
+func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
 	// We want the Timeout and Deadline values from dialer to cover the
 	// whole process: TCP connection and TLS handshake. This means that we
 	// also need to start our own timers now.
@@ -69,12 +69,19 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *tls.Config
 	if config == nil {
 		config = &tls.Config{}
 	}
+
+	serverName := config.ServerName
+
 	// If no ServerName is set, infer the ServerName
 	// from the hostname we're connecting to.
-	if config.ServerName == "" {
+	if serverName == "" {
+		serverName = hostname
+	}
+
+	if sendServerName {
 		// Make a copy to avoid polluting argument or default.
 		c := *config
-		c.ServerName = hostname
+		c.ServerName = serverName
 		config = &c
 	}
 
@@ -90,10 +97,34 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *tls.Config
 		err = <-errChannel
 	}
 
+	if !sendServerName && err == nil {
+		// Manually verify certificate
+		err = verifyServerCerts(conn, serverName, config)
+	}
 	if err != nil {
 		rawConn.Close()
 		return nil, err
 	}
 
 	return conn, nil
+}
+
+func verifyServerCerts(conn *tls.Conn, serverName string, config *tls.Config) error {
+	certs := conn.ConnectionState().PeerCertificates
+
+	opts := x509.VerifyOptions{
+		Roots:         config.RootCAs,
+		CurrentTime:   time.Now(),
+		DNSName:       serverName,
+		Intermediates: x509.NewCertPool(),
+	}
+
+	for i, cert := range certs {
+		if i == 0 {
+			continue
+		}
+		opts.Intermediates.AddCert(cert)
+	}
+	_, err := certs[0].Verify(opts)
+	return err
 }
