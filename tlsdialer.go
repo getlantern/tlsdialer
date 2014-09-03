@@ -83,6 +83,9 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		c := *config
 		c.ServerName = serverName
 		config = &c
+	} else {
+		// Don't verify, we'll verify manually after handshaking
+		config.InsecureSkipVerify = true
 	}
 
 	conn := tls.Client(rawConn, config)
@@ -98,7 +101,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 	}
 
 	if !sendServerName && err == nil {
-		// Manually verify certificate
+		// Manually verify certificates
 		err = verifyServerCerts(conn, serverName, config)
 	}
 	if err != nil {
