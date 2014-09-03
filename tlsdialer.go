@@ -3,13 +3,26 @@
 // client handshake.
 package tlsdialer
 
+import (
+	"crypto/tls"
+	"net"
+	"strings"
+	"time"
+)
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
 // Dial connects to the given network address using net.Dial
 // and then initiates a TLS handshake, returning the resulting
 // TLS connection.
 // Dial interprets a nil configuration as equivalent to
 // the zero configuration; see the documentation of Config
 // for the defaults.
-func Dial(network, addr string, config *Config) (*Conn, error) {
+func Dial(network, addr string, config *tls.Config) (*tls.Conn, error) {
 	return DialWithDialer(new(net.Dialer), network, addr, config)
 }
 
@@ -20,7 +33,7 @@ func Dial(network, addr string, config *Config) (*Conn, error) {
 //
 // DialWithDialer interprets a nil configuration as equivalent to the zero
 // configuration; see the documentation of Config for the defaults.
-func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*Conn, error) {
+func DialWithDialer(dialer *net.Dialer, network, addr string, config *tls.Config) (*tls.Conn, error) {
 	// We want the Timeout and Deadline values from dialer to cover the
 	// whole process: TCP connection and TLS handshake. This means that we
 	// also need to start our own timers now.
@@ -54,7 +67,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*
 	hostname := addr[:colonPos]
 
 	if config == nil {
-		config = defaultConfig()
+		config = &tls.Config{}
 	}
 	// If no ServerName is set, infer the ServerName
 	// from the hostname we're connecting to.
@@ -65,7 +78,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, config *Config) (*
 		config = &c
 	}
 
-	conn := Client(rawConn, config)
+	conn := tls.Client(rawConn, config)
 
 	if timeout == 0 {
 		err = conn.Handshake()
