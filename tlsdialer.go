@@ -78,11 +78,11 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		serverName = hostname
 	}
 
+	c := new(tls.Config)
+	*c = *config
+
 	if sendServerName {
-		// Make a copy to avoid polluting argument or default.
-		c := *config
-		c.ServerName = serverName
-		config = &c
+		config.ServerName = serverName
 	} else {
 		// Don't verify, we'll verify manually after handshaking
 		config.InsecureSkipVerify = true
@@ -100,7 +100,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		err = <-errChannel
 	}
 
-	if !sendServerName && err == nil {
+	if !sendServerName && err == nil && !c.InsecureSkipVerify {
 		// Manually verify certificates
 		err = verifyServerCerts(conn, serverName, config)
 	}
