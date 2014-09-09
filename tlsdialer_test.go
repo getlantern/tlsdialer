@@ -76,8 +76,25 @@ func TestOKWithServerName(t *testing.T) {
 }
 
 func TestOKWithoutServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, false, &tls.Config{
+	config := &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
+	}
+	_, err := Dial("tcp", ADDR, false, config)
+	if err != nil {
+		t.Errorf("Unable to dial: %s", err.Error())
+	}
+	serverName := <-receivedServerNames
+	if serverName != "" {
+		t.Errorf("Unexpected ServerName on server: %s", serverName)
+	}
+	if config.InsecureSkipVerify {
+		t.Errorf("Original config shouldn't have been modified, but it was")
+	}
+}
+
+func TestOKWithInsecureSkipVerify(t *testing.T) {
+	_, err := Dial("tcp", ADDR, false, &tls.Config{
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		t.Errorf("Unable to dial: %s", err.Error())
