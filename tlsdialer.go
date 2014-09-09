@@ -78,17 +78,21 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		serverName = hostname
 	}
 
+	// copy config so we can tweak it
+	configCopy := new(tls.Config)
+	*configCopy = *config
+
 	if sendServerName {
-		// Make a copy to avoid polluting argument or default.
-		c := *config
-		c.ServerName = serverName
-		config = &c
+		// Set the ServerName and rely on the usual logic in
+		// tls.Conn.Handshake() to do its verification
+		configCopy.ServerName = serverName
 	} else {
-		// Don't verify, we'll verify manually after handshaking
-		config.InsecureSkipVerify = true
+		// Disable verification in tls.Conn.Handshake().  We'll verify manually
+		// after handshaking
+		configCopy.InsecureSkipVerify = true
 	}
 
-	conn := tls.Client(rawConn, config)
+	conn := tls.Client(rawConn, configCopy)
 
 	if timeout == 0 {
 		err = conn.Handshake()
@@ -96,13 +100,12 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		go func() {
 			errChannel <- conn.Handshake()
 		}()
-
 		err = <-errChannel
 	}
 
-	if !sendServerName && err == nil {
+	if !sendServerName && err == nil && !config.InsecureSkipVerify {
 		// Manually verify certificates
-		err = verifyServerCerts(conn, serverName, config)
+		err = verifyServerCerts(conn, serverName, configCopy)
 	}
 	if err != nil {
 		rawConn.Close()
