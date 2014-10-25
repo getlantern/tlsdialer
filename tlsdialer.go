@@ -17,6 +17,18 @@ func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
+type DialResult struct {
+	// Conn: the conn resulting from dialing
+	Conn *tls.Conn
+	// ResolutionTime: the amount of time it took to resolve the address
+	ResolutionTime time.Duration
+	// ConnectTime: the amount of time that it took to connect the socket
+	ConnectTime time.Duration
+	// TlsHandshakeTime: the amount of time that it took to complete the TLS
+	// handshake
+	TlsHandshakeTime time.Duration
+}
+
 // Like crypto/tls.Dial, but with the ability to control whether or not to
 // send the ServerName extension in client handshakes through the sendServerName
 // flag.
@@ -34,6 +46,14 @@ func Dial(network, addr string, sendServerName bool, config *tls.Config) (*tls.C
 // Note - if sendServerName is false, the VerifiedChains field on the
 // connection's ConnectionState will never get populated.
 func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
+	result, err := DialWithTimings(dialer, network, addr, sendServerName, config)
+	return result.Conn, err
+}
+
+// Like DialWithDialer but returns a data structure including timings.
+func DialWithTimings(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*DialResult, error) {
+	result := &DialResult{}
+
 	// We want the Timeout and Deadline values from dialer to cover the
 	// whole process: TCP connection and TLS handshake. This means that we
 	// also need to start our own timers now.
@@ -55,10 +75,20 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		})
 	}
 
-	rawConn, err := dialer.Dial(network, addr)
+	start := time.Now()
+	// TODO: make this subject to the timeout too
+	resolved, err := net.ResolveTCPAddr("tcp", addr)
 	if err != nil {
-		return nil, err
+		return result, err
 	}
+	result.ResolutionTime = time.Now().Sub(start)
+
+	start = time.Now()
+	rawConn, err := dialer.Dial(network, resolved.String())
+	if err != nil {
+		return result, err
+	}
+	result.ConnectTime = time.Now().Sub(start)
 
 	colonPos := strings.LastIndex(addr, ":")
 	if colonPos == -1 {
@@ -94,6 +124,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 
 	conn := tls.Client(rawConn, configCopy)
 
+	start = time.Now()
 	if timeout == 0 {
 		err = conn.Handshake()
 	} else {
@@ -102,6 +133,9 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 		}()
 		err = <-errChannel
 	}
+	if err == nil {
+		result.TlsHandshakeTime = time.Now().Sub(start)
+	}
 
 	if !sendServerName && err == nil && !config.InsecureSkipVerify {
 		// Manually verify certificates
@@ -109,10 +143,11 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 	}
 	if err != nil {
 		rawConn.Close()
-		return nil, err
+		return result, err
 	}
 
-	return conn, nil
+	result.Conn = conn
+	return result, nil
 }
 
 func verifyServerCerts(conn *tls.Conn, serverName string, config *tls.Config) error {
