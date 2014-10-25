@@ -17,7 +17,8 @@ func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
-type DialResult struct {
+// A tls.Conn along with timings for key steps in establishing that Conn
+type ConnWithTimings struct {
 	// Conn: the conn resulting from dialing
 	Conn *tls.Conn
 	// ResolutionTime: the amount of time it took to resolve the address
@@ -46,13 +47,13 @@ func Dial(network, addr string, sendServerName bool, config *tls.Config) (*tls.C
 // Note - if sendServerName is false, the VerifiedChains field on the
 // connection's ConnectionState will never get populated.
 func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
-	result, err := DialWithTimings(dialer, network, addr, sendServerName, config)
+	result, err := DialForTimings(dialer, network, addr, sendServerName, config)
 	return result.Conn, err
 }
 
 // Like DialWithDialer but returns a data structure including timings.
-func DialWithTimings(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*DialResult, error) {
-	result := &DialResult{}
+func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*ConnWithTimings, error) {
+	result := &ConnWithTimings{}
 
 	// We want the Timeout and Deadline values from dialer to cover the
 	// whole process: TCP connection and TLS handshake. This means that we
