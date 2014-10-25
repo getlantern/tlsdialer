@@ -25,9 +25,9 @@ type ConnWithTimings struct {
 	ResolutionTime time.Duration
 	// ConnectTime: the amount of time that it took to connect the socket
 	ConnectTime time.Duration
-	// TlsHandshakeTime: the amount of time that it took to complete the TLS
+	// HandshakeTime: the amount of time that it took to complete the TLS
 	// handshake
-	TlsHandshakeTime time.Duration
+	HandshakeTime time.Duration
 }
 
 // Like crypto/tls.Dial, but with the ability to control whether or not to
@@ -135,7 +135,7 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		err = <-errChannel
 	}
 	if err == nil {
-		result.TlsHandshakeTime = time.Now().Sub(start)
+		result.HandshakeTime = time.Now().Sub(start)
 	}
 
 	if !sendServerName && err == nil && !config.InsecureSkipVerify {
