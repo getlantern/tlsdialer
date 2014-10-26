@@ -59,6 +59,7 @@ func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName boo
 
 // Like DialWithDialer but returns a data structure including timings.
 func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*ConnWithTimings, error) {
+	log.Tracef("Dialing %s addr %s")
 	result := &ConnWithTimings{}
 
 	// We want the Timeout and Deadline values from dialer to cover the
@@ -117,6 +118,7 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		log.Trace("No ServerName set, inferring from the hostname to which we're connecting")
 		serverName = hostname
 	}
+	log.Tracef("ServerName is: %s", serverName)
 
 	log.Trace("Copying config so that we can tweak it")
 	configCopy := new(tls.Config)
