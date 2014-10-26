@@ -9,6 +9,12 @@ import (
 	"net"
 	"strings"
 	"time"
+
+	"github.com/getlantern/golog"
+)
+
+var (
+	log = golog.LoggerFor("tlsdialer")
 )
 
 type timeoutError struct{}
@@ -76,6 +82,7 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		})
 	}
 
+	log.Tracef("Resolving addr: %s", addr)
 	start := time.Now()
 	// TODO: make this subject to the timeout too
 	resolved, err := net.ResolveTCPAddr("tcp", addr)
@@ -83,13 +90,16 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		return result, err
 	}
 	result.ResolutionTime = time.Now().Sub(start)
+	log.Tracef("Resolved addr %s to %s in %s", addr, resolved, result.ResolutionTime)
 
+	log.Tracef("Dialing %s", network)
 	start = time.Now()
 	rawConn, err := dialer.Dial(network, resolved.String())
 	if err != nil {
 		return result, err
 	}
 	result.ConnectTime = time.Now().Sub(start)
+	log.Tracef("Dialed in %s", result.ConnectTime)
 
 	colonPos := strings.LastIndex(addr, ":")
 	if colonPos == -1 {
@@ -103,28 +113,26 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 
 	serverName := config.ServerName
 
-	// If no ServerName is set, infer the ServerName
-	// from the hostname we're connecting to.
 	if serverName == "" {
+		log.Trace("No ServerName set, inferring from the hostname to which we're connecting")
 		serverName = hostname
 	}
 
-	// copy config so we can tweak it
+	log.Trace("Copying config so that we can tweak it")
 	configCopy := new(tls.Config)
 	*configCopy = *config
 
 	if sendServerName {
-		// Set the ServerName and rely on the usual logic in
-		// tls.Conn.Handshake() to do its verification
+		log.Tracef("Setting ServerName to %s and relying on the usual logic in tls.Conn.Handshake() to do verification", serverName)
 		configCopy.ServerName = serverName
 	} else {
-		// Disable verification in tls.Conn.Handshake().  We'll verify manually
-		// after handshaking
+		log.Trace("Disabling verification in tls.Conn.Handshake(). We'll verify manually after handshaking.")
 		configCopy.InsecureSkipVerify = true
 	}
 
 	conn := tls.Client(rawConn, configCopy)
 
+	log.Trace("Handshaking")
 	start = time.Now()
 	if timeout == 0 {
 		err = conn.Handshake()
@@ -137,12 +145,14 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 	if err == nil {
 		result.HandshakeTime = time.Now().Sub(start)
 	}
+	log.Tracef("Finished handshaking in: %s", result.HandshakeTime)
 
 	if !sendServerName && err == nil && !config.InsecureSkipVerify {
-		// Manually verify certificates
+		log.Trace("Manually verifying certificates")
 		err = verifyServerCerts(conn, serverName, configCopy)
 	}
 	if err != nil {
+		log.Trace("Handshake or verification error, closing underlying connection")
 		rawConn.Close()
 		return result, err
 	}

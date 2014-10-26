@@ -2,7 +2,6 @@ package tlsdialer
 
 import (
 	"crypto/tls"
-	"log"
 	"strings"
 	"testing"
 	"time"
@@ -50,7 +49,7 @@ func init() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Printf("Unable to accept!: %s", err)
+				log.Errorf("Unable to accept!: %s", err)
 				continue
 			}
 			go func() {
