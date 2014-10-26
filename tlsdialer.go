@@ -132,11 +132,12 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 
 	conn := tls.Client(rawConn, configCopy)
 
-	log.Trace("Handshaking")
 	start = time.Now()
 	if timeout == 0 {
+		log.Trace("Handshaking immediately")
 		err = conn.Handshake()
 	} else {
+		log.Trace("Handshaking on goroutine")
 		go func() {
 			errChannel <- conn.Handshake()
 		}()
