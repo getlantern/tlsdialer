@@ -2,6 +2,7 @@ package tlsdialer
 
 import (
 	"crypto/tls"
+	"math/rand"
 	"net"
 	"testing"
 	"time"
@@ -117,22 +118,18 @@ func TestNotOKWithoutServerName(t *testing.T) {
 	}
 }
 
-func TestSuperShortTimeout(t *testing.T) {
-	_, err := DialWithDialer(&net.Dialer{
-		Timeout: 1 * time.Nanosecond,
-	}, "tcp", ADDR, false, nil)
-	assert.Error(t, err, "There should have been a problem dialing")
-	if err != nil {
-		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
+func TestVariableTimeouts(t *testing.T) {
+	for i := 0; i < 500; i++ {
+		doTestTimeout(t, time.Duration(rand.Intn(2000)+1)*time.Microsecond)
 	}
 }
 
-func TestShortTimeout(t *testing.T) {
+func doTestTimeout(t *testing.T, timeout time.Duration) {
 	_, err := DialWithDialer(&net.Dialer{
-		Timeout: 2 * time.Millisecond,
+		Timeout: timeout,
 	}, "tcp", ADDR, false, nil)
-	assert.Error(t, err, "There should have been a problem dialing")
+	assert.Error(t, err, "There should have been a problem dialing", timeout)
 	if err != nil {
-		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
+		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout", timeout)
 	}
 }
