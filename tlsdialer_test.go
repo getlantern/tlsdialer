@@ -119,8 +119,10 @@ func TestNotOKWithoutServerName(t *testing.T) {
 }
 
 func TestVariableTimeouts(t *testing.T) {
+	// Timeouts can happen in different places, run a bunch of randomized trials
+	// to try to cover all of them.
 	for i := 0; i < 500; i++ {
-		doTestTimeout(t, time.Duration(rand.Intn(2000)+1)*time.Microsecond)
+		doTestTimeout(t, time.Duration(rand.Intn(5000)+1)*time.Microsecond)
 	}
 }
 
