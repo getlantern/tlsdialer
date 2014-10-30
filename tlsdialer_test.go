@@ -135,3 +135,14 @@ func doTestTimeout(t *testing.T, timeout time.Duration) {
 		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout", timeout)
 	}
 }
+
+func TestDeadlineBeforeTimeout(t *testing.T) {
+	_, err := DialWithDialer(&net.Dialer{
+		Timeout:  500 * time.Second,
+		Deadline: time.Now().Add(5 * time.Microsecond),
+	}, "tcp", ADDR, false, nil)
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
+	}
+}
