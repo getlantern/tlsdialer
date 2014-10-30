@@ -19,7 +19,7 @@ var (
 
 type timeoutError struct{}
 
-func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
+func (timeoutError) Error() string   { return "tlsdialer: DialWithDialer timed out" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
@@ -73,19 +73,38 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		}
 	}
 
-	var errChannel chan error
+	var errCh chan error
 
 	if timeout != 0 {
-		errChannel = make(chan error, 2)
+		errCh = make(chan error, 10)
 		time.AfterFunc(timeout, func() {
-			errChannel <- timeoutError{}
+			errCh <- timeoutError{}
 		})
 	}
 
 	log.Tracef("Resolving addr: %s", addr)
 	start := time.Now()
-	// TODO: make this subject to the timeout too
-	resolved, err := net.ResolveTCPAddr("tcp", addr)
+	var resolved *net.TCPAddr
+	var err error
+	if timeout == 0 {
+		log.Tracef("Resolving immediately")
+		resolved, err = net.ResolveTCPAddr("tcp", addr)
+	} else {
+		log.Tracef("Resolving on goroutine")
+		resolvedCh := make(chan *net.TCPAddr, 10)
+		go func() {
+			resolved, err := net.ResolveTCPAddr("tcp", addr)
+			log.Tracef("Resolution resulted in %s : %s", resolved, err)
+			resolvedCh <- resolved
+			errCh <- err
+		}()
+		err = <-errCh
+		if err == nil {
+			log.Tracef("No error, looking for resolved")
+			resolved = <-resolvedCh
+		}
+	}
+
 	if err != nil {
 		return result, err
 	}
@@ -140,9 +159,9 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 	} else {
 		log.Trace("Handshaking on goroutine")
 		go func() {
-			errChannel <- conn.Handshake()
+			errCh <- conn.Handshake()
 		}()
-		err = <-errChannel
+		err = <-errCh
 	}
 	if err == nil {
 		result.HandshakeTime = time.Now().Sub(start)

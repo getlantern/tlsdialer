@@ -2,11 +2,12 @@ package tlsdialer
 
 import (
 	"crypto/tls"
-	"strings"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/getlantern/keyman"
+	"github.com/getlantern/testify/assert"
 )
 
 const (
@@ -49,8 +50,7 @@ func init() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Errorf("Unable to accept!: %s", err)
-				continue
+				log.Fatalf("Unable to accept: %s", err)
 			}
 			go func() {
 				tlsConn := conn.(*tls.Conn)
@@ -65,13 +65,20 @@ func TestOKWithServerName(t *testing.T) {
 	_, err := Dial("tcp", ADDR, true, &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
 	})
-	if err != nil {
-		t.Errorf("Unable to dial: %s", err.Error())
-	}
+	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
-	if serverName != "localhost" {
-		t.Errorf("Unexpected ServerName on server: %s", serverName)
-	}
+	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+}
+
+func TestOKWithServerNameAndLongTimeout(t *testing.T) {
+	_, err := DialWithDialer(&net.Dialer{
+		Timeout: 25 * time.Second,
+	}, "tcp", ADDR, true, &tls.Config{
+		RootCAs: cert.PoolContainingCert(),
+	})
+	assert.NoError(t, err, "Unable to dial")
+	serverName := <-receivedServerNames
+	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
 }
 
 func TestOKWithoutServerName(t *testing.T) {
@@ -79,49 +86,53 @@ func TestOKWithoutServerName(t *testing.T) {
 		RootCAs: cert.PoolContainingCert(),
 	}
 	_, err := Dial("tcp", ADDR, false, config)
-	if err != nil {
-		t.Errorf("Unable to dial: %s", err.Error())
-	}
+	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
-	if serverName != "" {
-		t.Errorf("Unexpected ServerName on server: %s", serverName)
-	}
-	if config.InsecureSkipVerify {
-		t.Errorf("Original config shouldn't have been modified, but it was")
-	}
+	assert.Empty(t, serverName, "Unexpected ServerName on server")
+	assert.False(t, config.InsecureSkipVerify, "Original config shouldn't have been modified, but it was")
 }
 
 func TestOKWithInsecureSkipVerify(t *testing.T) {
 	_, err := Dial("tcp", ADDR, false, &tls.Config{
 		InsecureSkipVerify: true,
 	})
-	if err != nil {
-		t.Errorf("Unable to dial: %s", err.Error())
-	}
+	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
-	if serverName != "" {
-		t.Errorf("Unexpected ServerName on server: %s", serverName)
-	}
+	assert.Empty(t, serverName, "Unexpected ServerName on server")
 }
 
 func TestNotOKWithServerName(t *testing.T) {
 	_, err := Dial("tcp", ADDR, true, nil)
-	if err == nil {
-		t.Error("There should have been a problem dialing")
-	} else {
-		if !strings.Contains(err.Error(), CERTIFICATE_ERROR) {
-			t.Errorf("Wrong error on dial: %s", err)
-		}
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.Contains(t, err.Error(), CERTIFICATE_ERROR, "Wrong error on dial")
 	}
 }
 
 func TestNotOKWithoutServerName(t *testing.T) {
 	_, err := Dial("tcp", ADDR, false, nil)
-	if err == nil {
-		t.Error("There should have been a problem dialing")
-	} else {
-		if !strings.Contains(err.Error(), CERTIFICATE_ERROR) {
-			t.Errorf("Wrong error on dial: %s", err)
-		}
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.Contains(t, err.Error(), CERTIFICATE_ERROR, "Wrong error on dial")
+	}
+}
+
+func TestSuperShortTimeout(t *testing.T) {
+	_, err := DialWithDialer(&net.Dialer{
+		Timeout: 1 * time.Nanosecond,
+	}, "tcp", ADDR, false, nil)
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
+	}
+}
+
+func TestShortTimeout(t *testing.T) {
+	_, err := DialWithDialer(&net.Dialer{
+		Timeout: 2 * time.Millisecond,
+	}, "tcp", ADDR, false, nil)
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
 	}
 }
