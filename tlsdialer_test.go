@@ -1,9 +1,13 @@
 package tlsdialer
 
 import (
+	"bytes"
 	"crypto/tls"
+	"fmt"
 	"math/rand"
 	"net"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -56,23 +60,28 @@ func init() {
 			go func() {
 				tlsConn := conn.(*tls.Conn)
 				tlsConn.Handshake()
-				receivedServerNames <- tlsConn.ConnectionState().ServerName
+				serverName := tlsConn.ConnectionState().ServerName
+				conn.Close()
+				receivedServerNames <- serverName
 			}()
 		}
 	}()
 }
 
 func TestOKWithServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, true, &tls.Config{
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, true, &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
 	})
 	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
 	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestOKWithServerNameAndLongTimeout(t *testing.T) {
-	_, err := DialWithDialer(&net.Dialer{
+	fdStart := countTCPFiles()
+	conn, err := DialWithDialer(&net.Dialer{
 		Timeout: 25 * time.Second,
 	}, "tcp", ADDR, true, &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
@@ -80,50 +89,64 @@ func TestOKWithServerNameAndLongTimeout(t *testing.T) {
 	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
 	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestOKWithoutServerName(t *testing.T) {
+	fdStart := countTCPFiles()
 	config := &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
 	}
-	_, err := Dial("tcp", ADDR, false, config)
+	conn, err := Dial("tcp", ADDR, false, config)
 	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
 	assert.Empty(t, serverName, "Unexpected ServerName on server")
 	assert.False(t, config.InsecureSkipVerify, "Original config shouldn't have been modified, but it was")
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestOKWithInsecureSkipVerify(t *testing.T) {
-	_, err := Dial("tcp", ADDR, false, &tls.Config{
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, false, &tls.Config{
 		InsecureSkipVerify: true,
 	})
 	assert.NoError(t, err, "Unable to dial")
-	serverName := <-receivedServerNames
-	assert.Empty(t, serverName, "Unexpected ServerName on server")
+	<-receivedServerNames
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestNotOKWithServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, true, nil)
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, true, nil)
 	assert.Error(t, err, "There should have been a problem dialing")
 	if err != nil {
 		assert.Contains(t, err.Error(), CERTIFICATE_ERROR, "Wrong error on dial")
 	}
+	<-receivedServerNames
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestNotOKWithoutServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, false, nil)
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, false, nil)
 	assert.Error(t, err, "There should have been a problem dialing")
 	if err != nil {
 		assert.Contains(t, err.Error(), CERTIFICATE_ERROR, "Wrong error on dial")
 	}
+	serverName := <-receivedServerNames
+	assert.Empty(t, serverName, "Unexpected ServerName on server")
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestVariableTimeouts(t *testing.T) {
 	// Timeouts can happen in different places, run a bunch of randomized trials
 	// to try to cover all of them.
+	fdStart := countTCPFiles()
 	for i := 0; i < 500; i++ {
 		doTestTimeout(t, time.Duration(rand.Intn(5000)+1)*time.Microsecond)
 	}
+	fdEnd := countTCPFiles()
+	assert.Equal(t, fdStart, fdEnd, "Number of open files should be the same after test as before")
 }
 
 func doTestTimeout(t *testing.T, timeout time.Duration) {
@@ -137,7 +160,8 @@ func doTestTimeout(t *testing.T, timeout time.Duration) {
 }
 
 func TestDeadlineBeforeTimeout(t *testing.T) {
-	_, err := DialWithDialer(&net.Dialer{
+	fdStart := countTCPFiles()
+	conn, err := DialWithDialer(&net.Dialer{
 		Timeout:  500 * time.Second,
 		Deadline: time.Now().Add(5 * time.Microsecond),
 	}, "tcp", ADDR, false, nil)
@@ -145,4 +169,22 @@ func TestDeadlineBeforeTimeout(t *testing.T) {
 	if err != nil {
 		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
 	}
+	closeAndCountFDs(t, conn, err, fdStart)
+}
+
+func closeAndCountFDs(t *testing.T, conn *tls.Conn, err error, fdStart int) {
+	if err == nil {
+		conn.Close()
+	}
+	fdEnd := countTCPFiles()
+	assert.Equal(t, fdStart, fdEnd, "Number of open files should be the same after test as before")
+}
+
+// see https://groups.google.com/forum/#!topic/golang-nuts/c0AnWXjzNIA
+func countTCPFiles() int {
+	out, err := exec.Command("lsof", "-p", fmt.Sprintf("%v", os.Getpid())).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return bytes.Count(out, []byte("TCP")) - 1
 }
