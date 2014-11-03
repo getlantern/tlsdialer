@@ -152,7 +152,7 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 
 	if !sendServerName && err == nil && !config.InsecureSkipVerify {
 		log.Trace("Manually verifying certificates")
-		err = verifyServerCerts(conn, serverName, configCopy)
+		err = verifyServerCerts(conn, serverName, config)
 	}
 	if err != nil {
 		log.Trace("Handshake or verification error, closing underlying connection")

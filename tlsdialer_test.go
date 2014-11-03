@@ -77,7 +77,7 @@ func TestOKWithServerName(t *testing.T) {
 func TestOKWithoutServerName(t *testing.T) {
 	config := &tls.Config{
 		RootCAs:    cert.PoolContainingCert(),
-		ServerName: "localhost",
+		ServerName: "localhost", // we manually set a ServerName to make sure it doesn't get sent
 	}
 	_, err := Dial("tcp", ADDR, false, config)
 	if err != nil {
