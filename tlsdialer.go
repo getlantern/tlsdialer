@@ -19,7 +19,7 @@ var (
 
 type timeoutError struct{}
 
-func (timeoutError) Error() string   { return "tls: DialWithDialer timed out" }
+func (timeoutError) Error() string   { return "tlsdialer: DialWithDialer timed out" }
 func (timeoutError) Timeout() bool   { return true }
 func (timeoutError) Temporary() bool { return true }
 
@@ -34,6 +34,8 @@ type ConnWithTimings struct {
 	// HandshakeTime: the amount of time that it took to complete the TLS
 	// handshake
 	HandshakeTime time.Duration
+	// VerifiedChains: like tls.ConnectionState.VerifiedChains
+	VerifiedChains [][]*x509.Certificate
 }
 
 // Like crypto/tls.Dial, but with the ability to control whether or not to
@@ -41,7 +43,8 @@ type ConnWithTimings struct {
 // flag.
 //
 // Note - if sendServerName is false, the VerifiedChains field on the
-// connection's ConnectionState will never get populated.
+// connection's ConnectionState will never get populated. Use DialForTimings to
+// get back a data structure that includes the verified chains.
 func Dial(network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
 	return DialWithDialer(new(net.Dialer), network, addr, sendServerName, config)
 }
@@ -51,13 +54,15 @@ func Dial(network, addr string, sendServerName bool, config *tls.Config) (*tls.C
 // sendServerName flag.
 //
 // Note - if sendServerName is false, the VerifiedChains field on the
-// connection's ConnectionState will never get populated.
+// connection's ConnectionState will never get populated. Use DialForTimings to
+// get back a data structure that includes the verified chains.
 func DialWithDialer(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
 	result, err := DialForTimings(dialer, network, addr, sendServerName, config)
 	return result.Conn, err
 }
 
-// Like DialWithDialer but returns a data structure including timings.
+// Like DialWithDialer but returns a data structure including timings and the
+// verified chains.
 func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName bool, config *tls.Config) (*ConnWithTimings, error) {
 	result := &ConnWithTimings{}
 
@@ -73,19 +78,38 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		}
 	}
 
-	var errChannel chan error
+	var errCh chan error
 
 	if timeout != 0 {
-		errChannel = make(chan error, 2)
+		errCh = make(chan error, 10)
 		time.AfterFunc(timeout, func() {
-			errChannel <- timeoutError{}
+			errCh <- timeoutError{}
 		})
 	}
 
 	log.Tracef("Resolving addr: %s", addr)
 	start := time.Now()
-	// TODO: make this subject to the timeout too
-	resolved, err := net.ResolveTCPAddr("tcp", addr)
+	var resolved *net.TCPAddr
+	var err error
+	if timeout == 0 {
+		log.Tracef("Resolving immediately")
+		resolved, err = net.ResolveTCPAddr("tcp", addr)
+	} else {
+		log.Tracef("Resolving on goroutine")
+		resolvedCh := make(chan *net.TCPAddr, 10)
+		go func() {
+			resolved, err := net.ResolveTCPAddr("tcp", addr)
+			log.Tracef("Resolution resulted in %s : %s", resolved, err)
+			resolvedCh <- resolved
+			errCh <- err
+		}()
+		err = <-errCh
+		if err == nil {
+			log.Tracef("No error, looking for resolved")
+			resolved = <-resolvedCh
+		}
+	}
+
 	if err != nil {
 		return result, err
 	}
@@ -141,19 +165,26 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 	} else {
 		log.Trace("Handshaking on goroutine")
 		go func() {
-			errChannel <- conn.Handshake()
+			errCh <- conn.Handshake()
 		}()
-		err = <-errChannel
+		err = <-errCh
 	}
 	if err == nil {
 		result.HandshakeTime = time.Now().Sub(start)
 	}
 	log.Tracef("Finished handshaking in: %s", result.HandshakeTime)
 
-	if !sendServerName && err == nil && !config.InsecureSkipVerify {
-		log.Trace("Manually verifying certificates")
-		err = verifyServerCerts(conn, serverName, config)
+	if err == nil && !config.InsecureSkipVerify {
+		if sendServerName {
+			log.Trace("Depending on certificate verification in tls.Conn.Handshake()")
+			result.VerifiedChains = conn.ConnectionState().VerifiedChains
+		} else {
+			log.Trace("Manually verifying certificates")
+			configCopy.ServerName = ""
+			result.VerifiedChains, err = verifyServerCerts(conn, serverName, configCopy)
+		}
 	}
+
 	if err != nil {
 		log.Trace("Handshake or verification error, closing underlying connection")
 		rawConn.Close()
@@ -164,7 +195,7 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 	return result, nil
 }
 
-func verifyServerCerts(conn *tls.Conn, serverName string, config *tls.Config) error {
+func verifyServerCerts(conn *tls.Conn, serverName string, config *tls.Config) ([][]*x509.Certificate, error) {
 	certs := conn.ConnectionState().PeerCertificates
 
 	opts := x509.VerifyOptions{
@@ -180,6 +211,5 @@ func verifyServerCerts(conn *tls.Conn, serverName string, config *tls.Config) er
 		}
 		opts.Intermediates.AddCert(cert)
 	}
-	_, err := certs[0].Verify(opts)
-	return err
+	return certs[0].Verify(opts)
 }

@@ -1,12 +1,18 @@
 package tlsdialer
 
 import (
+	"bytes"
 	"crypto/tls"
-	"strings"
+	"fmt"
+	"math/rand"
+	"net"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
 	"github.com/getlantern/keyman"
+	"github.com/getlantern/testify/assert"
 )
 
 const (
@@ -49,82 +55,139 @@ func init() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Errorf("Unable to accept!: %s", err)
-				continue
+				log.Fatalf("Unable to accept: %s", err)
 			}
 			go func() {
 				tlsConn := conn.(*tls.Conn)
 				tlsConn.Handshake()
-				receivedServerNames <- tlsConn.ConnectionState().ServerName
+				serverName := tlsConn.ConnectionState().ServerName
+				conn.Close()
+				receivedServerNames <- serverName
 			}()
 		}
 	}()
 }
 
 func TestOKWithServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, true, &tls.Config{
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, true, &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
 	})
-	if err != nil {
-		t.Errorf("Unable to dial: %s", err.Error())
-	}
+	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
-	if serverName != "localhost" {
-		t.Errorf("Unexpected ServerName on server: %s", serverName)
-	}
+	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+	closeAndCountFDs(t, conn, err, fdStart)
+}
+
+func TestOKWithServerNameAndLongTimeout(t *testing.T) {
+	fdStart := countTCPFiles()
+	conn, err := DialWithDialer(&net.Dialer{
+		Timeout: 25 * time.Second,
+	}, "tcp", ADDR, true, &tls.Config{
+		RootCAs: cert.PoolContainingCert(),
+	})
+	assert.NoError(t, err, "Unable to dial")
+	serverName := <-receivedServerNames
+	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestOKWithoutServerName(t *testing.T) {
+	fdStart := countTCPFiles()
 	config := &tls.Config{
 		RootCAs:    cert.PoolContainingCert(),
 		ServerName: "localhost", // we manually set a ServerName to make sure it doesn't get sent
 	}
-	_, err := Dial("tcp", ADDR, false, config)
-	if err != nil {
-		t.Errorf("Unable to dial: %s", err.Error())
-	}
+	conn, err := Dial("tcp", ADDR, false, config)
+	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
-	if serverName != "" {
-		t.Errorf("Unexpected ServerName on server: %s", serverName)
-	}
-	if config.InsecureSkipVerify {
-		t.Errorf("Original config shouldn't have been modified, but it was")
-	}
+	assert.Empty(t, serverName, "Unexpected ServerName on server")
+	assert.False(t, config.InsecureSkipVerify, "Original config shouldn't have been modified, but it was")
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestOKWithInsecureSkipVerify(t *testing.T) {
-	_, err := Dial("tcp", ADDR, false, &tls.Config{
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, false, &tls.Config{
 		InsecureSkipVerify: true,
 	})
-	if err != nil {
-		t.Errorf("Unable to dial: %s", err.Error())
-	}
-	serverName := <-receivedServerNames
-	if serverName != "" {
-		t.Errorf("Unexpected ServerName on server: %s", serverName)
-	}
+	assert.NoError(t, err, "Unable to dial")
+	<-receivedServerNames
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestNotOKWithServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, true, &tls.Config{
-		ServerName: "localhost",
-	})
-	if err == nil {
-		t.Error("There should have been a problem dialing")
-	} else {
-		if !strings.Contains(err.Error(), CERTIFICATE_ERROR) {
-			t.Errorf("Wrong error on dial: %s", err)
-		}
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, true, nil)
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.Contains(t, err.Error(), CERTIFICATE_ERROR, "Wrong error on dial")
 	}
+	<-receivedServerNames
+	closeAndCountFDs(t, conn, err, fdStart)
 }
 
 func TestNotOKWithoutServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, false, nil)
-	if err == nil {
-		t.Error("There should have been a problem dialing")
-	} else {
-		if !strings.Contains(err.Error(), CERTIFICATE_ERROR) {
-			t.Errorf("Wrong error on dial: %s", err)
-		}
+	fdStart := countTCPFiles()
+	conn, err := Dial("tcp", ADDR, true, &tls.Config{
+		ServerName: "localhost",
+	})
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.Contains(t, err.Error(), CERTIFICATE_ERROR, "Wrong error on dial")
 	}
+	serverName := <-receivedServerNames
+	assert.Empty(t, serverName, "Unexpected ServerName on server")
+	closeAndCountFDs(t, conn, err, fdStart)
+}
+
+func TestVariableTimeouts(t *testing.T) {
+	// Timeouts can happen in different places, run a bunch of randomized trials
+	// to try to cover all of them.
+	fdStart := countTCPFiles()
+	for i := 0; i < 500; i++ {
+		doTestTimeout(t, time.Duration(rand.Intn(5000)+1)*time.Microsecond)
+	}
+	fdEnd := countTCPFiles()
+	assert.Equal(t, fdStart, fdEnd, "Number of open files should be the same after test as before")
+}
+
+func doTestTimeout(t *testing.T, timeout time.Duration) {
+	_, err := DialWithDialer(&net.Dialer{
+		Timeout: timeout,
+	}, "tcp", ADDR, false, nil)
+	assert.Error(t, err, "There should have been a problem dialing", timeout)
+	if err != nil {
+		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout", timeout)
+	}
+}
+
+func TestDeadlineBeforeTimeout(t *testing.T) {
+	fdStart := countTCPFiles()
+	conn, err := DialWithDialer(&net.Dialer{
+		Timeout:  500 * time.Second,
+		Deadline: time.Now().Add(5 * time.Microsecond),
+	}, "tcp", ADDR, false, nil)
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.True(t, err.(net.Error).Timeout(), "Dial error should be timeout")
+	}
+	closeAndCountFDs(t, conn, err, fdStart)
+}
+
+func closeAndCountFDs(t *testing.T, conn *tls.Conn, err error, fdStart int) {
+	if err == nil {
+		conn.Close()
+	}
+	fdEnd := countTCPFiles()
+	assert.Equal(t, fdStart, fdEnd, "Number of open files should be the same after test as before")
+}
+
+// see https://groups.google.com/forum/#!topic/golang-nuts/c0AnWXjzNIA
+func countTCPFiles() int {
+	out, err := exec.Command("lsof", "-p", fmt.Sprintf("%v", os.Getpid())).Output()
+	if err != nil {
+		log.Fatal(err)
+	}
+	return bytes.Count(out, []byte("TCP")) - 1
 }
