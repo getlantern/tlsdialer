@@ -76,7 +76,8 @@ func TestOKWithServerName(t *testing.T) {
 
 func TestOKWithoutServerName(t *testing.T) {
 	config := &tls.Config{
-		RootCAs: cert.PoolContainingCert(),
+		RootCAs:    cert.PoolContainingCert(),
+		ServerName: "localhost",
 	}
 	_, err := Dial("tcp", ADDR, false, config)
 	if err != nil {
@@ -105,7 +106,9 @@ func TestOKWithInsecureSkipVerify(t *testing.T) {
 }
 
 func TestNotOKWithServerName(t *testing.T) {
-	_, err := Dial("tcp", ADDR, true, nil)
+	_, err := Dial("tcp", ADDR, true, &tls.Config{
+		ServerName: "localhost",
+	})
 	if err == nil {
 		t.Error("There should have been a problem dialing")
 	} else {

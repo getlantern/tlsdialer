@@ -127,7 +127,8 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		log.Tracef("Setting ServerName to %s and relying on the usual logic in tls.Conn.Handshake() to do verification", serverName)
 		configCopy.ServerName = serverName
 	} else {
-		log.Trace("Disabling verification in tls.Conn.Handshake(). We'll verify manually after handshaking.")
+		log.Trace("Clearing ServerName and disabling verification in tls.Conn.Handshake(). We'll verify manually after handshaking.")
+		configCopy.ServerName = ""
 		configCopy.InsecureSkipVerify = true
 	}
 
