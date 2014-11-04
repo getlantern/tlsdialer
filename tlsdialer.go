@@ -34,6 +34,8 @@ type ConnWithTimings struct {
 	// HandshakeTime: the amount of time that it took to complete the TLS
 	// handshake
 	HandshakeTime time.Duration
+	// ResolvedAddr: the address to which our dns lookup resolved
+	ResolvedAddr *net.TCPAddr
 	// VerifiedChains: like tls.ConnectionState.VerifiedChains
 	VerifiedChains [][]*x509.Certificate
 }
@@ -89,11 +91,10 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 
 	log.Tracef("Resolving addr: %s", addr)
 	start := time.Now()
-	var resolved *net.TCPAddr
 	var err error
 	if timeout == 0 {
 		log.Tracef("Resolving immediately")
-		resolved, err = net.ResolveTCPAddr("tcp", addr)
+		result.ResolvedAddr, err = net.ResolveTCPAddr("tcp", addr)
 	} else {
 		log.Tracef("Resolving on goroutine")
 		resolvedCh := make(chan *net.TCPAddr, 10)
@@ -106,7 +107,7 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		err = <-errCh
 		if err == nil {
 			log.Tracef("No error, looking for resolved")
-			resolved = <-resolvedCh
+			result.ResolvedAddr = <-resolvedCh
 		}
 	}
 
@@ -114,11 +115,11 @@ func DialForTimings(dialer *net.Dialer, network, addr string, sendServerName boo
 		return result, err
 	}
 	result.ResolutionTime = time.Now().Sub(start)
-	log.Tracef("Resolved addr %s to %s in %s", addr, resolved, result.ResolutionTime)
+	log.Tracef("Resolved addr %s to %s in %s", addr, result.ResolvedAddr, result.ResolutionTime)
 
-	log.Tracef("Dialing %s %s (%s)", network, addr, resolved)
+	log.Tracef("Dialing %s %s (%s)", network, addr, result.ResolvedAddr)
 	start = time.Now()
-	rawConn, err := dialer.Dial(network, resolved.String())
+	rawConn, err := dialer.Dial(network, result.ResolvedAddr.String())
 	if err != nil {
 		return result, err
 	}

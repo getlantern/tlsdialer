@@ -70,12 +70,14 @@ func init() {
 
 func TestOKWithServerName(t *testing.T) {
 	fdStart := countTCPFiles()
-	conn, err := Dial("tcp", ADDR, true, &tls.Config{
+	cwt, err := DialForTimings(new(net.Dialer), "tcp", ADDR, true, &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
 	})
+	conn := cwt.Conn
 	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
 	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+	assert.NotNil(t, cwt.ResolvedAddr, "Should have resolved addr")
 	closeAndCountFDs(t, conn, err, fdStart)
 }
 
@@ -148,6 +150,8 @@ func TestVariableTimeouts(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		doTestTimeout(t, time.Duration(rand.Intn(5000)+1)*time.Microsecond)
 	}
+	// Wait to give the sockets time to close
+	time.Sleep(1 * time.Second)
 	fdEnd := countTCPFiles()
 	assert.Equal(t, fdStart, fdEnd, "Number of open files should be the same after test as before")
 }
@@ -180,7 +184,7 @@ func closeAndCountFDs(t *testing.T, conn *tls.Conn, err error, fdStart int) {
 		conn.Close()
 	}
 	fdEnd := countTCPFiles()
-	assert.Equal(t, fdStart, fdEnd, "Number of open files should be the same after test as before")
+	assert.Equal(t, fdStart, fdEnd, "Number of open TCP files should be the same after test as before")
 }
 
 // see https://groups.google.com/forum/#!topic/golang-nuts/c0AnWXjzNIA
