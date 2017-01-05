@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/getlantern/golog"
+	"github.com/getlantern/mtime"
 	"github.com/getlantern/netx"
 	"github.com/getlantern/ops"
 )
@@ -77,7 +78,7 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 	}
 
 	log.Tracef("Resolving addr: %s", addr)
-	start := time.Now()
+	elapsed := mtime.Stopwatch()
 	var err error
 	if timeout == 0 {
 		log.Tracef("Resolving immediately")
@@ -101,7 +102,7 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 	if err != nil {
 		return result, err
 	}
-	result.ResolutionTime = time.Now().Sub(start)
+	result.ResolutionTime = elapsed()
 	log.Tracef("Resolved addr %s to %s in %s", addr, result.ResolvedAddr, result.ResolutionTime)
 
 	hostname, _, err := net.SplitHostPort(addr)
@@ -110,13 +111,13 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 	}
 
 	log.Tracef("Dialing %s %s (%s)", network, addr, result.ResolvedAddr)
-	start = time.Now()
+	elapsed = mtime.Stopwatch()
 	resolvedAddr := result.ResolvedAddr.String()
 	rawConn, err := dial(network, resolvedAddr, timeout)
 	if err != nil {
 		return result, err
 	}
-	result.ConnectTime = time.Now().Sub(start)
+	result.ConnectTime = elapsed()
 	log.Tracef("Dialed in %s", result.ConnectTime)
 
 	if config == nil {
@@ -146,7 +147,7 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 
 	conn := tls.Client(rawConn, configCopy)
 
-	start = time.Now()
+	elapsed = mtime.Stopwatch()
 	if timeout == 0 {
 		log.Trace("Handshaking immediately")
 		err = conn.Handshake()
@@ -158,7 +159,7 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 		err = <-errCh
 	}
 	if err == nil {
-		result.HandshakeTime = time.Now().Sub(start)
+		result.HandshakeTime = elapsed()
 	}
 	log.Tracef("Finished handshaking in: %s", result.HandshakeTime)
 
