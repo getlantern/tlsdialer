@@ -30,7 +30,7 @@ func init() {
 	}
 
 	// Generate self-signed certificate
-	cert, err = pk.TLSCertificateFor("tlsdialer", "localhost", time.Now().Add(1*time.Hour), true, nil)
+	cert, err = pk.TLSCertificateFor(time.Now().Add(1*time.Hour), true, nil, "tlsdialer", "localhost")
 	if err != nil {
 		log.Fatalf("Unable to generate cert: %s", err)
 	}

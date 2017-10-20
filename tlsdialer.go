@@ -175,9 +175,9 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 	}
 
 	if err != nil {
-		log.Trace("Handshake or verification error, closing underlying connection")
-		if err := rawConn.Close(); err != nil {
-			log.Debugf("Unable to close connection: %v", err)
+		log.Tracef("Handshake or verification error, closing underlying connection: %v", err)
+		if closeErr := rawConn.Close(); closeErr != nil {
+			log.Debugf("Unable to close connection: %v", closeErr)
 		}
 		return result, err
 	}
