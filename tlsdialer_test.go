@@ -1,7 +1,6 @@
 package tlsdialer
 
 import (
-	"crypto/tls"
 	"math/rand"
 	"net"
 	"testing"
@@ -9,6 +8,7 @@ import (
 
 	"github.com/getlantern/fdcount"
 	"github.com/getlantern/keyman"
+	"github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -77,6 +77,31 @@ func TestOKWithServerName(t *testing.T) {
 	cwt, err := DialForTimings(net.DialTimeout, 30*time.Second, "tcp", ADDR, true, &tls.Config{
 		RootCAs: cert.PoolContainingCert(),
 	})
+	conn := cwt.Conn
+	assert.NoError(t, err, "Unable to dial")
+	serverName := <-receivedServerNames
+	assert.Equal(t, "localhost", serverName, "Unexpected ServerName on server")
+	assert.NotNil(t, cwt.ResolvedAddr, "Should have resolved addr")
+
+	closeAndCountFDs(t, conn, err, fdc)
+}
+
+func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
+	_, fdc, err := fdcount.Matching("TCP")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d := &Dialer{
+		Dial:           net.DialTimeout,
+		Timeout:        30 * time.Second,
+		SendServerName: true,
+		ClientHelloID:  tls.HelloChrome_Auto,
+		Config: &tls.Config{
+			RootCAs: cert.PoolContainingCert(),
+		},
+	}
+	cwt, err := d.DialForTimings("tcp", ADDR)
 	conn := cwt.Conn
 	assert.NoError(t, err, "Unable to dial")
 	serverName := <-receivedServerNames
@@ -158,7 +183,7 @@ func TestNotOKWithoutServerName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	conn, err := Dial("tcp", ADDR, true, &tls.Config{
+	conn, err := Dial("tcp", ADDR, false, &tls.Config{
 		ServerName: "localhost",
 	})
 	assert.Error(t, err, "There should have been a problem dialing")
