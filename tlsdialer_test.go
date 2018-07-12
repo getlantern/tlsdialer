@@ -93,7 +93,7 @@ func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
 	}
 
 	d := &Dialer{
-		Dial:           net.DialTimeout,
+		DoDial:         net.DialTimeout,
 		Timeout:        30 * time.Second,
 		SendServerName: true,
 		ClientHelloID:  tls.HelloChrome_Auto,

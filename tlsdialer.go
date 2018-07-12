@@ -29,7 +29,7 @@ func (timeoutError) Temporary() bool { return true }
 
 // Dialer is a configurable dialer that dials using tls
 type Dialer struct {
-	Dial           func(net string, addr string, timeout time.Duration) (net.Conn, error)
+	DoDial         func(net string, addr string, timeout time.Duration) (net.Conn, error)
 	Timeout        time.Duration
 	Network        string
 	SendServerName bool
@@ -75,7 +75,7 @@ func DialTimeout(dial func(net string, addr string, timeout time.Duration) (net.
 // verified chains.
 func DialForTimings(dial func(net string, addr string, timeout time.Duration) (net.Conn, error), timeout time.Duration, network, addr string, sendServerName bool, config *tls.Config) (*ConnWithTimings, error) {
 	d := &Dialer{
-		Dial:           dial,
+		DoDial:         dial,
 		Timeout:        timeout,
 		SendServerName: sendServerName,
 		Config:         config,
@@ -83,6 +83,16 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 	return d.DialForTimings(network, addr)
 }
 
+// Dial dials the given network and address.
+func (d *Dialer) Dial(network, addr string) (net.Conn, error) {
+	cwt, err := d.DialForTimings(network, addr)
+	if err != nil {
+		return nil, err
+	}
+	return cwt.Conn, nil
+}
+
+// DialForTimings dials the given network and address and returns a ConnWithTimings.
 func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) {
 	result := &ConnWithTimings{}
 
@@ -134,7 +144,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	log.Tracef("Dialing %s %s (%s)", network, addr, result.ResolvedAddr)
 	elapsed = mtime.Stopwatch()
 	resolvedAddr := result.ResolvedAddr.String()
-	rawConn, err := d.Dial(network, resolvedAddr, d.Timeout)
+	rawConn, err := d.DoDial(network, resolvedAddr, d.Timeout)
 	if err != nil {
 		return result, err
 	}
