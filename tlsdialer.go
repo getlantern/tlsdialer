@@ -67,8 +67,13 @@ func Dial(network, addr string, sendServerName bool, config *tls.Config) (*tls.C
 
 // Like Dial, but timing out after the given timeout.
 func DialTimeout(dial func(net string, addr string, timeout time.Duration) (net.Conn, error), timeout time.Duration, network, addr string, sendServerName bool, config *tls.Config) (*tls.Conn, error) {
-	result, err := DialForTimings(dial, timeout, network, addr, sendServerName, config)
-	return result.Conn, err
+	d := &Dialer{
+		DoDial:         dial,
+		Timeout:        timeout,
+		SendServerName: sendServerName,
+		Config:         config,
+	}
+	return d.Dial(network, addr)
 }
 
 // Like DialWithDialer but returns a data structure including timings and the
@@ -84,7 +89,7 @@ func DialForTimings(dial func(net string, addr string, timeout time.Duration) (n
 }
 
 // Dial dials the given network and address.
-func (d *Dialer) Dial(network, addr string) (net.Conn, error) {
+func (d *Dialer) Dial(network, addr string) (*tls.Conn, error) {
 	cwt, err := d.DialForTimings(network, addr)
 	if err != nil {
 		return nil, err
