@@ -221,6 +221,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 		if closeErr := rawConn.Close(); closeErr != nil {
 			log.Debugf("Unable to close connection: %v", closeErr)
 		}
+		log.Errorf("Error establishing TLS connection to %v: %v", rawConn.RemoteAddr(), err)
 		return result, err
 	}
 
