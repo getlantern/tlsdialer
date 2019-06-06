@@ -188,19 +188,6 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 		chid = tls.HelloGolang
 	}
 	conn := tls.UClient(rawConn, configCopy, chid)
-	if !d.SendServerName {
-		// Actually omit the SNI Extension.
-		// blank ServerName values appear to confuse some server software
-		// and real browsers appear to omit the extension in this
-		// case. XXX upstream fix?
-		filteredExts := make([]tls.TLSExtension, 0, len(conn.Extensions))
-		for _, e := range conn.Extensions {
-			if _, ok := e.(*tls.SNIExtension); !ok {
-				filteredExts = append(filteredExts, e)
-			}
-		}
-		conn.Extensions = filteredExts
-	}
 	elapsed = mtime.Stopwatch()
 	if d.Timeout == 0 {
 		log.Trace("Handshaking immediately")
