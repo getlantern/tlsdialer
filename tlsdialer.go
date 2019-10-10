@@ -14,7 +14,7 @@ import (
 	"github.com/getlantern/netx"
 	"github.com/getlantern/ops"
 
-	"github.com/refraction-networking/utls"
+	tls "github.com/refraction-networking/utls"
 )
 
 var (
@@ -29,12 +29,13 @@ func (timeoutError) Temporary() bool { return true }
 
 // Dialer is a configurable dialer that dials using tls
 type Dialer struct {
-	DoDial         func(net string, addr string, timeout time.Duration) (net.Conn, error)
-	Timeout        time.Duration
-	Network        string
-	SendServerName bool
-	ClientHelloID  tls.ClientHelloID
-	Config         *tls.Config
+	DoDial             func(net string, addr string, timeout time.Duration) (net.Conn, error)
+	Timeout            time.Duration
+	Network            string
+	SendServerName     bool
+	ClientHelloID      tls.ClientHelloID
+	ClientSessionState *tls.ClientSessionState
+	Config             *tls.Config
 }
 
 // A tls.Conn along with timings for key steps in establishing that Conn
@@ -188,6 +189,9 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 		chid = tls.HelloGolang
 	}
 	conn := tls.UClient(rawConn, configCopy, chid)
+	if d.ClientSessionState != nil {
+		conn.SetSessionState(d.ClientSessionState)
+	}
 	elapsed = mtime.Stopwatch()
 	if d.Timeout == 0 {
 		log.Trace("Handshaking immediately")
