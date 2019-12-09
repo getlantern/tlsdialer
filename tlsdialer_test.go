@@ -15,6 +15,7 @@ import (
 const (
 	ADDR              = "localhost:15623"
 	CERTIFICATE_ERROR = "x509: certificate signed by unknown authority"
+	NAME_ERROR        = "x509: certificate is valid for localhost, not example.com"
 )
 
 var (
@@ -219,6 +220,57 @@ func TestNotOKWithBadRootCert(t *testing.T) {
 	closeAndCountFDs(t, conn, err, fdc)
 }
 
+func TestOKWithForceValidateName(t *testing.T) {
+	_, fdc, err := fdcount.Matching("TCP")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d := &Dialer{
+		DoDial:            net.DialTimeout,
+		Timeout:           30 * time.Second,
+		SendServerName:    true,
+		ForceValidateName: "localhost",
+		Config: &tls.Config{
+			ServerName: "example.com",
+			RootCAs:    cert.PoolContainingCert(),
+		},
+	}
+	cwt, err := d.DialForTimings("tcp", ADDR)
+	conn := cwt.Conn
+	assert.NoError(t, err, "Unable to dial")
+	serverName := <-receivedServerNames
+	assert.Equal(t, "example.com", serverName, "Unexpected ServerName on server")
+	assert.NotNil(t, cwt.ResolvedAddr, "Should have resolved addr")
+
+	closeAndCountFDs(t, conn, err, fdc)
+}
+
+func TestNotOKWithoutForceValidateName(t *testing.T) {
+	_, fdc, err := fdcount.Matching("TCP")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d := &Dialer{
+		DoDial:         net.DialTimeout,
+		Timeout:        30 * time.Second,
+		SendServerName: true,
+		Config: &tls.Config{
+			ServerName: "example.com",
+			RootCAs:    cert.PoolContainingCert(),
+		},
+	}
+	cwt, err := d.DialForTimings("tcp", ADDR)
+	assert.Error(t, err, "There should have been a problem dialing")
+	if err != nil {
+		assert.Contains(t, err.Error(), NAME_ERROR, "Wrong error on dial")
+	}
+	<-receivedServerNames
+	conn := cwt.Conn
+	closeAndCountFDs(t, conn, err, fdc)
+}
+
 func TestVariableTimeouts(t *testing.T) {
 	// Timeouts can happen in different places, run a bunch of randomized trials
 	// to try to cover all of them.
@@ -263,6 +315,16 @@ func TestVariableTimeouts(t *testing.T) {
 
 	// Wait to give the sockets time to close
 	time.Sleep(1 * time.Second)
+	// Attempt to clean up and release any blocked goroutines trying to write to this global...
+Cleanup:
+	for true {
+		select {
+		case <-receivedServerNames:
+		default:
+			break Cleanup
+		}
+	}
+
 	assert.NoError(t, fdc.AssertDelta(0), "Number of open files should be the same after test as before")
 }
 
