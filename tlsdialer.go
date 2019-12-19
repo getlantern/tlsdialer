@@ -180,19 +180,18 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	log.Trace("Copying config so that we can tweak it")
 	configCopy := new(tls.Config)
 	*configCopy = *config
+	configCopy.InsecureSkipVerify = true
 
 	if d.SendServerName {
 		configCopy.ServerName = serverName
 		if serverName == validateName {
-			log.Tracef("Setting ServerName to %s and relying on the usual logic in tls.Conn.Handshake() to do verification", serverName)
+			log.Tracef("Setting ServerName to %s.")
 		} else {
 			log.Tracef("Setting ServerName to %s, but validating name %s", serverName, validateName)
-			configCopy.InsecureSkipVerify = true
 		}
 	} else {
-		log.Trace("Clearing ServerName and disabling verification in tls.Conn.Handshake(). We'll verify manually after handshaking.")
+		log.Trace("Clearing ServerName.")
 		configCopy.ServerName = ""
-		configCopy.InsecureSkipVerify = true
 	}
 
 	chid := d.ClientHelloID
@@ -221,14 +220,9 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	log.Tracef("Finished handshaking in: %s", result.HandshakeTime)
 
 	if err == nil && !config.InsecureSkipVerify {
-		if !configCopy.InsecureSkipVerify {
-			log.Trace("Depending on certificate verification in tls.Conn.Handshake()")
-			result.VerifiedChains = conn.ConnectionState().VerifiedChains
-		} else {
-			log.Trace("Manually verifying certificates")
-			configCopy.ServerName = ""
-			result.VerifiedChains, err = verifyServerCerts(conn.Conn, validateName, configCopy)
-		}
+		log.Trace("Manually verifying certificates")
+		configCopy.ServerName = ""
+		result.VerifiedChains, err = verifyServerCerts(conn.Conn, validateName, configCopy)
 	}
 
 	if err != nil {
