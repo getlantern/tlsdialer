@@ -8,7 +8,7 @@ import (
 
 	"github.com/getlantern/fdcount"
 	"github.com/getlantern/keyman"
-	"github.com/refraction-networking/utls"
+	tls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -220,6 +220,14 @@ func TestNotOKWithBadRootCert(t *testing.T) {
 	closeAndCountFDs(t, conn, err, fdc)
 }
 
+func TestSimulatedMITMDialingPublicSite(t *testing.T) {
+	connWithTimings, err := DialForTimings(func(network, addr string, timeout time.Duration) (net.Conn, error) {
+		return net.DialTimeout(network, "www.microsoft.com:443", timeout)
+	}, 30*time.Second, "tcp", "www.google.com:443", false, &tls.Config{})
+	if !assert.Error(t, err, "Should get certificate validation failure when connecting to mismatched site") {
+		connWithTimings.Conn.Close()
+	}
+}
 func TestOKWithForceValidateName(t *testing.T) {
 	_, fdc, err := fdcount.Matching("TCP")
 	if err != nil {
