@@ -29,10 +29,12 @@ func (timeoutError) Temporary() bool { return true }
 
 // Dialer is a configurable dialer that dials using tls
 type Dialer struct {
-	DoDial             func(net string, addr string, timeout time.Duration) (net.Conn, error)
-	Timeout            time.Duration
-	Network            string
-	SendServerName     bool
+	DoDial         func(net string, addr string, timeout time.Duration) (net.Conn, error)
+	Timeout        time.Duration
+	Network        string
+	SendServerName bool
+	// Force validation of a specific name other than the SNI name or dialed hostname
+	ForceValidateName  string
 	ClientHelloID      tls.ClientHelloID
 	ClientSessionState *tls.ClientSessionState
 	Config             *tls.Config
@@ -170,17 +172,26 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	}
 	log.Tracef("ServerName is: %s", serverName)
 
+	validateName := serverName
+	if d.ForceValidateName != "" {
+		validateName = d.ForceValidateName
+	}
+
 	log.Trace("Copying config so that we can tweak it")
 	configCopy := new(tls.Config)
 	*configCopy = *config
+	configCopy.InsecureSkipVerify = true
 
 	if d.SendServerName {
-		log.Tracef("Setting ServerName to %s and relying on the usual logic in tls.Conn.Handshake() to do verification", serverName)
 		configCopy.ServerName = serverName
+		if serverName == validateName {
+			log.Tracef("Setting ServerName to %s.")
+		} else {
+			log.Tracef("Setting ServerName to %s, but validating name %s", serverName, validateName)
+		}
 	} else {
-		log.Trace("Clearing ServerName and disabling verification in tls.Conn.Handshake(). We'll verify manually after handshaking.")
+		log.Trace("Clearing ServerName.")
 		configCopy.ServerName = ""
-		configCopy.InsecureSkipVerify = true
 	}
 
 	chid := d.ClientHelloID
@@ -209,14 +220,9 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	log.Tracef("Finished handshaking in: %s", result.HandshakeTime)
 
 	if err == nil && !config.InsecureSkipVerify {
-		if d.SendServerName {
-			log.Trace("Depending on certificate verification in tls.Conn.Handshake()")
-			result.VerifiedChains = conn.ConnectionState().VerifiedChains
-		} else {
-			log.Trace("Manually verifying certificates")
-			configCopy.ServerName = ""
-			result.VerifiedChains, err = verifyServerCerts(conn.Conn, serverName, configCopy)
-		}
+		log.Trace("Manually verifying certificates")
+		configCopy.ServerName = ""
+		result.VerifiedChains, err = verifyServerCerts(conn.Conn, validateName, configCopy)
 	}
 
 	if err != nil {
