@@ -201,7 +201,14 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	}
 	conn := tls.UClient(rawConn, configCopy, chid)
 	if d.ClientSessionState != nil {
-		conn.SetSessionState(d.ClientSessionState)
+		hasCachedSession := false
+		if configCopy.ClientSessionCache != nil {
+			sessionCacheKey := clientSessionCacheKey(rawConn.RemoteAddr(), configCopy)
+			_, hasCachedSession = configCopy.ClientSessionCache.Get(sessionCacheKey)
+		}
+		if !hasCachedSession {
+			conn.SetSessionState(d.ClientSessionState)
+		}
 	}
 	elapsed = mtime.Stopwatch()
 	if d.Timeout == 0 {
@@ -254,4 +261,11 @@ func verifyServerCerts(conn *tls.Conn, serverName string, config *tls.Config) ([
 		opts.Intermediates.AddCert(cert)
 	}
 	return certs[0].Verify(opts)
+}
+
+func clientSessionCacheKey(serverAddr net.Addr, config *tls.Config) string {
+	if len(config.ServerName) > 0 {
+		return config.ServerName
+	}
+	return serverAddr.String()
 }
