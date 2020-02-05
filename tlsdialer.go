@@ -44,6 +44,8 @@ type Dialer struct {
 type ConnWithTimings struct {
 	// Conn: the conn resulting from dialing
 	Conn *tls.Conn
+	// UConn: the utls conn resulting from dialing
+	UConn *tls.UConn
 	// ResolutionTime: the amount of time it took to resolve the address
 	ResolutionTime time.Duration
 	// ConnectTime: the amount of time that it took to connect the socket
@@ -185,7 +187,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	if d.SendServerName {
 		configCopy.ServerName = serverName
 		if serverName == validateName {
-			log.Tracef("Setting ServerName to %s.")
+			log.Tracef("Setting ServerName to %s.", serverName)
 		} else {
 			log.Tracef("Setting ServerName to %s, but validating name %s", serverName, validateName)
 		}
@@ -207,6 +209,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 			_, hasCachedSession = configCopy.ClientSessionCache.Get(sessionCacheKey)
 		}
 		if !hasCachedSession {
+			log.Trace("Setting configured client session state")
 			conn.SetSessionState(d.ClientSessionState)
 		}
 	}
@@ -241,6 +244,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	}
 
 	result.Conn = conn.Conn
+	result.UConn = conn
 	return result, nil
 }
 
