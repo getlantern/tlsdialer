@@ -1,4 +1,4 @@
-module github.com/getlantern/tlsdialer
+module github.com/getlantern/tlsdialer/v3
 
 go 1.12
 
