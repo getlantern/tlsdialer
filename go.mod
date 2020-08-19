@@ -9,7 +9,7 @@ require (
 	github.com/getlantern/fdcount v0.0.0-20190912142506-f89afd7367c4
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
 	github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7
-	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a
+	github.com/getlantern/keyman v0.0.0-20200819205636-76fef27c39f1
 	github.com/getlantern/mockconn v0.0.0-20190708122800-637bd46d8034 // indirect
 	github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0
 	github.com/getlantern/netx v0.0.0-20190110220209-9912de6f94fd
