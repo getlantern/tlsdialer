@@ -10,6 +10,7 @@ import (
 	"github.com/getlantern/keyman"
 	tls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -162,6 +163,37 @@ func TestOKWithInsecureSkipVerify(t *testing.T) {
 	closeAndCountFDs(t, conn, err, fdc)
 }
 
+func TestOKWithCustomClientHelloSpec(t *testing.T) {
+	// This suite is unlikely to be chosen without our forcing it.
+	const suite = tls.TLS_RSA_WITH_AES_256_CBC_SHA
+
+	_, fdc, err := fdcount.Matching("TCP")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d := Dialer{
+		DoDial: net.DialTimeout,
+		Config: &tls.Config{
+			RootCAs: cert.PoolContainingCert(),
+		},
+		ClientHelloID: tls.HelloCustom,
+		ClientHelloSpec: &tls.ClientHelloSpec{
+			CipherSuites: []uint16{suite},
+			TLSVersMin:   tls.VersionTLS10,
+			TLSVersMax:   tls.VersionTLS12,
+		},
+	}
+
+	conn, err := d.Dial("tcp", ADDR)
+	require.NoError(t, err)
+
+	// Check that our custom spec was used.
+	require.Equal(t, suite, conn.ConnectionState().CipherSuite)
+
+	closeAndCountFDs(t, conn, err, fdc)
+}
+
 func TestNotOKWithServerName(t *testing.T) {
 	_, fdc, err := fdcount.Matching("TCP")
 	if err != nil {
@@ -228,6 +260,7 @@ func TestSimulatedMITMDialingPublicSite(t *testing.T) {
 		connWithTimings.Conn.Close()
 	}
 }
+
 func TestOKWithForceValidateName(t *testing.T) {
 	_, fdc, err := fdcount.Matching("TCP")
 	if err != nil {
