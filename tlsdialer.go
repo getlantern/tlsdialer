@@ -5,6 +5,7 @@ package tlsdialer
 
 import (
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -33,8 +34,14 @@ type Dialer struct {
 	Timeout        time.Duration
 	Network        string
 	SendServerName bool
+
 	// Force validation of a specific name other than the SNI name or dialed hostname
-	ForceValidateName  string
+	ForceValidateName string
+
+	// Must be provided if ClientHelloID is set to tls.HelloCustom. This field is ignored if
+	// ClientHelloID is not set to tls.HelloCustom.
+	ClientHelloSpec *tls.ClientHelloSpec
+
 	ClientHelloID      tls.ClientHelloID
 	ClientSessionState *tls.ClientSessionState
 	Config             *tls.Config
@@ -211,6 +218,17 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 		if !hasCachedSession {
 			log.Trace("Setting configured client session state")
 			conn.SetSessionState(d.ClientSessionState)
+		}
+	}
+	if d.ClientHelloID == tls.HelloCustom && d.ClientHelloSpec == nil {
+		return nil, errors.New("tls.HelloCustom requires ClientHelloSpec")
+	}
+	if d.ClientHelloSpec != nil && d.ClientHelloID != tls.HelloCustom {
+		return nil, errors.New("ClientHelloSpec requires tls.HelloCustom")
+	}
+	if d.ClientHelloID == tls.HelloCustom {
+		if err := conn.ApplyPreset(d.ClientHelloSpec); err != nil {
+			return nil, fmt.Errorf("failed to apply custom client hello spec: %w", err)
 		}
 	}
 	elapsed = mtime.Stopwatch()
