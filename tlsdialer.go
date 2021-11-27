@@ -111,6 +111,12 @@ func (d *Dialer) Dial(network, addr string) (*tls.Conn, error) {
 
 // DialForTimings dials the given network and address and returns a ConnWithTimings.
 func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		return nil, fmt.Errorf("unsupported network '%s'", network)
+	}
+
 	result := &ConnWithTimings{}
 
 	var errCh chan error
@@ -130,12 +136,12 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	var err error
 	if d.Timeout == 0 {
 		log.Tracef("Resolving immediately")
-		result.ResolvedAddr, err = netx.Resolve("tcp", addr)
+		result.ResolvedAddr, err = netx.Resolve(network, addr)
 	} else {
 		log.Tracef("Resolving on goroutine")
 		resolvedCh := make(chan *net.TCPAddr, 10)
 		ops.Go(func() {
-			resolved, resolveErr := netx.Resolve("tcp", addr)
+			resolved, resolveErr := netx.Resolve(network, addr)
 			log.Tracef("Resolution resulted in %s : %s", resolved, resolveErr)
 			resolvedCh <- resolved
 			errCh <- resolveErr
