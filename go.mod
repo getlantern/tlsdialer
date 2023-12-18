@@ -14,7 +14,7 @@ require (
 	github.com/getlantern/ops v0.0.0-20200403153110-8476b16edcd6
 	github.com/refraction-networking/utls v0.0.0-20190909200633-43c36d3c1f57
 	github.com/stretchr/testify v1.7.0
-	golang.org/x/crypto v0.1.0 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 )
 
 replace github.com/refraction-networking/utls => github.com/getlantern/utls v0.0.0-20191001223343-79cda44164e3
