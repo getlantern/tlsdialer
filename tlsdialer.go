@@ -193,8 +193,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 	}
 
 	log.Trace("Copying config so that we can tweak it")
-	configCopy := new(tls.Config)
-	*configCopy = *config
+	configCopy := config.Clone()
 	configCopy.InsecureSkipVerify = true
 
 	if d.SendServerName {
