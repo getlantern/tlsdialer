@@ -1,6 +1,13 @@
 package tlsdialer
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	crand "crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"math/rand"
 	"net"
 	"strings"
@@ -105,8 +112,9 @@ func TestOKWithInsecureSkipVerify(t *testing.T) {
 }
 
 func TestOKWithCustomClientHelloSpec(t *testing.T) {
-	// This suite is unlikely to be chosen without our forcing it.
-	const suite = tls.TLS_RSA_WITH_AES_256_CBC_SHA
+	// Go 1.21 (newer utls like v1.6.7) has disabled less secure cipher suites
+	//  so we have to use ECDHE in our custom ClientHelloSpec
+	const suite = tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
 
 	sAddr, cert, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
@@ -122,6 +130,9 @@ func TestOKWithCustomClientHelloSpec(t *testing.T) {
 			CipherSuites: []uint16{suite},
 			TLSVersMin:   tls.VersionTLS10,
 			TLSVersMax:   tls.VersionTLS12,
+			Extensions: []tls.TLSExtension{
+				&tls.SupportedCurvesExtension{Curves: []tls.CurveID{tls.CurveP256}},
+			},
 		},
 	}
 
@@ -235,12 +246,12 @@ func TestNotOKWithoutForceValidateName(t *testing.T) {
 
 func TestVariableTimeouts(t *testing.T) {
 	sAddr, cert, serverNames := newTestServer(t)
-	_, fdc, err := fdcount.Matching("TCP")
+	_, _, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
 	// Timeouts can happen in different places, run a bunch of randomized trials
 	// to try to cover all of them.
-	_, fdc, err = fdcount.Matching("TCP")
+	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
 	doTestTimeout := func(timeout time.Duration) (didTimeout bool, err error) {
@@ -280,7 +291,7 @@ func TestVariableTimeouts(t *testing.T) {
 	time.Sleep(1 * time.Second)
 	// Attempt to clean up and release any blocked goroutines.
 Cleanup:
-	for true {
+	for {
 		select {
 		case <-serverNames:
 		default:
@@ -295,15 +306,41 @@ Cleanup:
 func newTestServer(t *testing.T) (addr string, cert *keyman.Certificate, serverNames <-chan string) {
 	t.Helper()
 
-	pk, err := keyman.GeneratePK(2048)
-	require.NoError(t, err)
+	// generate ECDSA private key
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), crand.Reader)
+	require.NoError(t, err, "Failed to generate ECDSA key")
 
-	// Generate self-signed certificate
-	cert, err = pk.TLSCertificateFor(time.Now().Add(1*time.Hour), true, nil, "tlsdialer", "localhost", "127.0.0.1")
-	require.NoError(t, err)
+	// create a certificate template
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{Organization: []string{"tlsdialer"}, CommonName: "localhost"},
+		Issuer:       pkix.Name{Organization: []string{"tlsdialer"}, CommonName: "localhost"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(1 * time.Hour),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
 
-	keypair, err := tls.X509KeyPair(cert.PEMEncoded(), pk.PEMEncoded())
-	require.NoError(t, err)
+	certDER, err := x509.CreateCertificate(crand.Reader, template, template, &priv.PublicKey, priv)
+	require.NoError(t, err, "Failed to create certificate")
+
+	// generate keyman.Certificate
+	parsedCert, err := x509.ParseCertificate(certDER)
+	require.NoError(t, err, "Failed to parse certificate")
+	cert, err = keyman.LoadCertificateFromX509(parsedCert)
+	require.NoError(t, err, "Failed to load certificate")
+
+	// PEM encode the certificate and key
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyPEM, err := x509.MarshalECPrivateKey(priv)
+	require.NoError(t, err, "Failed to marshal ECDSA key")
+	keyPEMBytes := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyPEM})
+
+	// parse the PEM certificate and key
+	keypair, err := tls.X509KeyPair(certPEM, keyPEMBytes)
+	require.NoError(t, err, "Failed to parse PEM certificate")
 
 	listener, err := tls.Listen("tcp", "localhost:0", &tls.Config{Certificates: []tls.Certificate{keypair}})
 	require.NoError(t, err)
