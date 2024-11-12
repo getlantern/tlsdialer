@@ -9,6 +9,7 @@ require (
 	github.com/getlantern/mtime v0.0.0-20200417132445-23682092d1f7
 	github.com/getlantern/netx v0.0.0-20240814210628-0984f52e2d18
 	github.com/getlantern/ops v0.0.0-20231025133620-f368ab734534
+	github.com/getlantern/tlsresumption v0.0.0-20211216020551-6a3f901d86b9
 	github.com/refraction-networking/utls v1.6.7
 	github.com/stretchr/testify v1.8.4
 )
@@ -36,7 +37,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.19.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
-	golang.org/x/crypto v0.21.0 // indirect
-	golang.org/x/sys v0.18.0 // indirect
+	golang.org/x/crypto v0.28.0 // indirect
+	golang.org/x/sys v0.26.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

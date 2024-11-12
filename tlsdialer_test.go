@@ -16,6 +16,7 @@ import (
 
 	"github.com/getlantern/fdcount"
 	"github.com/getlantern/keyman"
+	"github.com/getlantern/tlsresumption"
 	tls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,37 @@ func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
 	require.NoError(t, err, "Unable to dial")
 	require.Equal(t, "localhost", <-serverNames, "Unexpected ServerName on server")
 	require.NotNil(t, cwt.ResolvedAddr, "Should have resolved addr")
+
+	closeAndCountFDs(t, cwt.Conn, err, fdc)
+}
+
+func TestOKWithSessionState(t *testing.T) {
+	sAddr, cert, _ := newTestServer(t)
+	t.Log("Server address:", sAddr)
+	_, fdc, err := fdcount.Matching("TCP")
+	require.NoError(t, err)
+
+	sss, err := tlsresumption.MakeClientSessionStates(sAddr, 1)
+	require.NoError(t, err)
+	css, err := tlsresumption.ParseClientSessionState(sss[0])
+	require.NoError(t, err)
+
+	d := &Dialer{
+		DoDial:             net.DialTimeout,
+		Timeout:            30 * time.Second,
+		SendServerName:     true,
+		ClientHelloID:      tls.HelloChrome_Auto,
+		ClientSessionState: css,
+		Config: &tls.Config{
+			RootCAs:            cert.PoolContainingCert(),
+			ServerName:         "localhost",
+			ClientSessionCache: tls.NewLRUClientSessionCache(0),
+		},
+	}
+	cwt, err := d.DialForTimings("tcp", sAddr)
+	require.NoError(t, err, "Unable to dial")
+	require.NotNil(t, cwt.ResolvedAddr, "Should have resolved addr")
+	require.True(t, cwt.Conn.ConnectionState().DidResume, "Should have resumed with session ticket")
 
 	closeAndCountFDs(t, cwt.Conn, err, fdc)
 }
@@ -342,7 +374,7 @@ func newTestServer(t *testing.T) (addr string, cert *keyman.Certificate, serverN
 	keypair, err := tls.X509KeyPair(certPEM, keyPEMBytes)
 	require.NoError(t, err, "Failed to parse PEM certificate")
 
-	listener, err := tls.Listen("tcp", "localhost:0", &tls.Config{Certificates: []tls.Certificate{keypair}})
+	listener, err := tls.Listen("tcp", "localhost:0", &tls.Config{Certificates: []tls.Certificate{keypair}, MaxVersion: tls.VersionTLS12})
 	require.NoError(t, err)
 	t.Cleanup(func() { listener.Close() })
 
