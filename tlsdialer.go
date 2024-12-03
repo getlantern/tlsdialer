@@ -161,7 +161,7 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 
 	hostname, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return result, fmt.Errorf("Unable to split host and port for %v: %v", addr, err)
+		return result, fmt.Errorf("unable to split host and port for %v: %v", addr, err)
 	}
 
 	log.Tracef("Dialing %s %s (%s)", network, addr, result.ResolvedAddr)
@@ -222,7 +222,17 @@ func (d *Dialer) DialForTimings(network, addr string) (*ConnWithTimings, error) 
 		}
 		if !hasCachedSession {
 			log.Trace("Setting configured client session state")
-			conn.SetSessionState(d.ClientSessionState)
+			ticket, state, err := d.ClientSessionState.ResumptionState()
+			if err != nil {
+				return nil, fmt.Errorf("unable to get resumption state: %v", err)
+			}
+			if err = conn.SetSessionTicketExtension(&tls.SessionTicketExtension{
+				Initialized: true,
+				Ticket:      ticket,
+				Session:     state,
+			}); err != nil {
+				return nil, fmt.Errorf("unable to set session state: %v", err)
+			}
 		}
 	}
 	if d.ClientHelloID == tls.HelloCustom && d.ClientHelloSpec == nil {
