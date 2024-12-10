@@ -43,8 +43,8 @@ github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f/go.mod h1:D5ao98qkA
 github.com/getlantern/ops v0.0.0-20220713155959-1315d978fff7/go.mod h1:D5ao98qkA6pxftxoqzibIBBrLSUli+kYnJqrgBf9cIA=
 github.com/getlantern/ops v0.0.0-20231025133620-f368ab734534 h1:3BwvWj0JZzFEvNNiMhCu4bf60nqcIuQpTYb00Ezm1ag=
 github.com/getlantern/ops v0.0.0-20231025133620-f368ab734534/go.mod h1:ZsLfOY6gKQOTyEcPYNA9ws5/XHZQFroxqCOhHjGcs9Y=
-github.com/getlantern/tlsresumption v0.0.0-20241203054031-f3e4eec291ad h1:RsOMhwKzMD0M7FrsqZ0fKwTblr6pNCYrzmtnbnVr3Cg=
-github.com/getlantern/tlsresumption v0.0.0-20241203054031-f3e4eec291ad/go.mod h1:lAlPJK1Y5nFlydkty/imyPFpLCi5V+hzQHXOqeoeXyk=
+github.com/getlantern/tlsresumption v0.0.0-20241210052744-a1c6aacc1d4d h1:CM+1DbLVMvsrf5cvQnPF2txKKRI1H2sDj0+WvDrZ6zU=
+github.com/getlantern/tlsresumption v0.0.0-20241210052744-a1c6aacc1d4d/go.mod h1:YaLhn/xKC6Z0FUizXdCcPuNn/ODQ9fibA7q33dtuH9g=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.2.3/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.1 h1:pKouT5E8xu9zeFC39JXRDukb6JFQPXM5p5I91188VAQ=
