@@ -1,6 +1,6 @@
 module github.com/getlantern/tlsdialer/v3
 
-go 1.22.6
+go 1.22.4
 
 require (
 	github.com/getlantern/fdcount v0.0.0-20190912142506-f89afd7367c4
