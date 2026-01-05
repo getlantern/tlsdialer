@@ -8,7 +8,6 @@ require (
 	github.com/getlantern/mtime v0.0.0-20200417132445-23682092d1f7
 	github.com/getlantern/netx v0.0.0-20240814210628-0984f52e2d18
 	github.com/getlantern/ops v0.0.0-20231025133620-f368ab734534
-	github.com/getlantern/tlsresumption v0.0.0-20260105214007-72705ac7b8d0
 	github.com/refraction-networking/utls v1.6.7
 	github.com/stretchr/testify v1.8.4
 )

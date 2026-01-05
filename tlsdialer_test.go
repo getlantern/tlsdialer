@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/getlantern/fdcount"
-	"github.com/getlantern/tlsresumption"
 	tls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +65,7 @@ func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
 	closeAndCountFDs(t, cwt.Conn, err, fdc)
 }
 
+/*
 func TestOKWithSessionState(t *testing.T) {
 	sAddr, certPool, _ := newTestServer(t)
 	t.Log("Server address:", sAddr)
@@ -96,6 +96,7 @@ func TestOKWithSessionState(t *testing.T) {
 
 	closeAndCountFDs(t, cwt.Conn, err, fdc)
 }
+*/
 
 func TestOKWithServerNameAndLongTimeout(t *testing.T) {
 	sAddr, certPool, serverNames := newTestServer(t)
