@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"math/rand"
 	"net"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/getlantern/fdcount"
-	"github.com/getlantern/keyman"
 	"github.com/getlantern/tlsresumption"
 	tls "github.com/refraction-networking/utls"
 	"github.com/stretchr/testify/assert"
@@ -28,12 +28,12 @@ const (
 )
 
 func TestOKWithServerName(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
 	cwt, err := DialForTimings(net.DialTimeout, 30*time.Second, "tcp", sAddr, true, &tls.Config{
-		RootCAs:    cert.PoolContainingCert(),
+		RootCAs:    certPool,
 		ServerName: "localhost",
 	})
 	require.NoError(t, err, "Unable to dial")
@@ -44,7 +44,7 @@ func TestOKWithServerName(t *testing.T) {
 }
 
 func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
@@ -54,7 +54,7 @@ func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
 		SendServerName: true,
 		ClientHelloID:  tls.HelloChrome_Auto,
 		Config: &tls.Config{
-			RootCAs:    cert.PoolContainingCert(),
+			RootCAs:    certPool,
 			ServerName: "localhost",
 		},
 	}
@@ -67,7 +67,7 @@ func TestOKWithServerNameAndChromeHandshake(t *testing.T) {
 }
 
 func TestOKWithSessionState(t *testing.T) {
-	sAddr, cert, _ := newTestServer(t)
+	sAddr, certPool, _ := newTestServer(t)
 	t.Log("Server address:", sAddr)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestOKWithSessionState(t *testing.T) {
 		ClientHelloID:      tls.HelloChrome_Auto,
 		ClientSessionState: css,
 		Config: &tls.Config{
-			RootCAs:            cert.PoolContainingCert(),
+			RootCAs:            certPool,
 			ServerName:         "localhost",
 			ClientSessionCache: tls.NewLRUClientSessionCache(0),
 		},
@@ -98,12 +98,12 @@ func TestOKWithSessionState(t *testing.T) {
 }
 
 func TestOKWithServerNameAndLongTimeout(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
 	conn, err := DialTimeout(net.DialTimeout, 25*time.Second, "tcp", sAddr, true, &tls.Config{
-		RootCAs:    cert.PoolContainingCert(),
+		RootCAs:    certPool,
 		ServerName: "localhost",
 	})
 	assert.NoError(t, err, "Unable to dial")
@@ -113,12 +113,12 @@ func TestOKWithServerNameAndLongTimeout(t *testing.T) {
 }
 
 func TestOKWithoutServerName(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
 	config := &tls.Config{
-		RootCAs:    cert.PoolContainingCert(),
+		RootCAs:    certPool,
 		ServerName: "localhost", // we manually set a ServerName to make sure it doesn't get sent
 	}
 	conn, err := Dial("tcp", sAddr, false, config)
@@ -148,14 +148,14 @@ func TestOKWithCustomClientHelloSpec(t *testing.T) {
 	//  so we have to use ECDHE in our custom ClientHelloSpec
 	const suite = tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305
 
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
 	d := Dialer{
 		DoDial: net.DialTimeout,
 		Config: &tls.Config{
-			RootCAs: cert.PoolContainingCert(),
+			RootCAs: certPool,
 		},
 		ClientHelloID: tls.HelloCustom,
 		ClientHelloSpec: &tls.ClientHelloSpec{
@@ -209,16 +209,31 @@ func TestNotOKWithBadRootCert(t *testing.T) {
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
-	badCert, err := keyman.LoadCertificateFromPEMBytes([]byte(GoogleInternetAuthority))
+	badCert, err := loadCertificateFromPEMBytes([]byte(GoogleInternetAuthority))
 	require.NoError(t, err)
 
-	conn, err := Dial("tcp", sAddr, true, &tls.Config{RootCAs: badCert.PoolContainingCert()})
+	pool := x509.NewCertPool()
+	pool.AddCert(badCert)
+
+	conn, err := Dial("tcp", sAddr, true, &tls.Config{RootCAs: pool})
 	require.Error(t, err)
 	assert.Error(t, err, "There should have been a problem dialing")
 	require.Contains(t, err.Error(), certError, "Wrong error on dial")
 	<-serverNames
 
 	closeAndCountFDs(t, conn, err, fdc)
+}
+
+func loadCertificateFromPEMBytes(pemBytes []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, fmt.Errorf("Unable to decode PEM encoded certificate")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse x509 certificate: %v", err)
+	}
+	return cert, nil
 }
 
 func TestSimulatedMITMDialingPublicSite(t *testing.T) {
@@ -232,7 +247,7 @@ func TestSimulatedMITMDialingPublicSite(t *testing.T) {
 }
 
 func TestOKWithForceValidateName(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
@@ -243,7 +258,7 @@ func TestOKWithForceValidateName(t *testing.T) {
 		ForceValidateName: "localhost",
 		Config: &tls.Config{
 			ServerName: "example.com",
-			RootCAs:    cert.PoolContainingCert(),
+			RootCAs:    certPool,
 		},
 	}
 
@@ -256,7 +271,7 @@ func TestOKWithForceValidateName(t *testing.T) {
 }
 
 func TestNotOKWithoutForceValidateName(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, fdc, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
@@ -266,7 +281,7 @@ func TestNotOKWithoutForceValidateName(t *testing.T) {
 		SendServerName: true,
 		Config: &tls.Config{
 			ServerName: "example.com",
-			RootCAs:    cert.PoolContainingCert(),
+			RootCAs:    certPool,
 		},
 	}
 	cwt, err := d.DialForTimings("tcp", sAddr)
@@ -277,7 +292,7 @@ func TestNotOKWithoutForceValidateName(t *testing.T) {
 }
 
 func TestVariableTimeouts(t *testing.T) {
-	sAddr, cert, serverNames := newTestServer(t)
+	sAddr, certPool, serverNames := newTestServer(t)
 	_, _, err := fdcount.Matching("TCP")
 	require.NoError(t, err)
 
@@ -288,7 +303,7 @@ func TestVariableTimeouts(t *testing.T) {
 
 	doTestTimeout := func(timeout time.Duration) (didTimeout bool, err error) {
 		conn, err := DialTimeout(net.DialTimeout, timeout, "tcp", sAddr, false, &tls.Config{
-			RootCAs: cert.PoolContainingCert(),
+			RootCAs: certPool,
 		})
 		if err == nil {
 			conn.Close()
@@ -335,7 +350,7 @@ Cleanup:
 }
 
 // The serverNames channel is used to communicate SNI values sent by clients.
-func newTestServer(t *testing.T) (addr string, cert *keyman.Certificate, serverNames <-chan string) {
+func newTestServer(t *testing.T) (string, *x509.CertPool, <-chan string) {
 	t.Helper()
 
 	// generate ECDSA private key
@@ -358,10 +373,14 @@ func newTestServer(t *testing.T) (addr string, cert *keyman.Certificate, serverN
 	certDER, err := x509.CreateCertificate(crand.Reader, template, template, &priv.PublicKey, priv)
 	require.NoError(t, err, "Failed to create certificate")
 
-	// generate keyman.Certificate
 	parsedCert, err := x509.ParseCertificate(certDER)
 	require.NoError(t, err, "Failed to parse certificate")
-	cert, err = keyman.LoadCertificateFromX509(parsedCert)
+	pemBytes := pem.EncodeToMemory(&pem.Block{
+		Type:    "CERTIFICATE",
+		Headers: nil,
+		Bytes:   parsedCert.Raw,
+	})
+	cert, err := loadCertificateFromPEMBytes(pemBytes)
 	require.NoError(t, err, "Failed to load certificate")
 
 	// PEM encode the certificate and key
@@ -400,8 +419,9 @@ func newTestServer(t *testing.T) (addr string, cert *keyman.Certificate, serverN
 			}()
 		}
 	}()
-
-	return listener.Addr().String(), cert, _serverNames
+	certPool := x509.NewCertPool()
+	certPool.AddCert(cert)
+	return listener.Addr().String(), certPool, _serverNames
 }
 
 func closeAndCountFDs(t *testing.T, conn *tls.Conn, err error, fdc *fdcount.Counter) {
